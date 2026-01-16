@@ -1,0 +1,8 @@
+[
+  {
+    "id": "template-basic",
+    "name": "Basic Intro",
+    "description": "Simple two-frame intro",
+    "frames": 2
+  }
+]

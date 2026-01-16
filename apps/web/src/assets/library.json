@@ -1,0 +1,8 @@
+[
+  {
+    "id": "asset-sample-svg",
+    "name": "Sample SVG",
+    "type": "svg",
+    "path": "/sample.svg"
+  }
+]

@@ -1,0 +1,14 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "types": ["vite/client"],
+    "baseUrl": ".",
+    "paths": {
+      "@dream-motion/shared": ["../../packages/shared/src"],
+      "@dream-motion/schema": ["../../packages/schema/src"],
+      "@dream-motion/runtime": ["../../packages/runtime/src"],
+      "@dream-motion/export": ["../../packages/export/src"]
+    }
+  },
+  "include": ["src"]
+}
