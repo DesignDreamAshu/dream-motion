@@ -5,6 +5,7 @@ import eyeIcon from '../assets/Eye-Show_Password.svg';
 import eyeOffIcon from '../assets/Eye_Off-Hide_Password-1.svg';
 import lockIcon from '../assets/Lock.svg';
 import unlockIcon from '../assets/Unlock.svg';
+import arrowDownIcon from '../assets/Arrow Down.svg';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { ScrollArea } from './ui/scroll-area';
@@ -79,7 +80,7 @@ export const LayersPanel: React.FC<LayersPanelProps> = ({
               >
                 <button
                   type="button"
-                  className="scene-caret"
+                  className={`scene-caret ${isExpanded ? '' : 'is-collapsed'}`}
                   onClick={(event) => {
                     event.stopPropagation();
                     setExpandedFrames((prev) => {
@@ -93,10 +94,9 @@ export const LayersPanel: React.FC<LayersPanelProps> = ({
                     });
                   }}
                 >
-                  {isExpanded ? 'v' : '>'}
+                  <img src={arrowDownIcon} alt="" />
                 </button>
                 <span className="scene-title">{frame.name}</span>
-                <span className="scene-subtitle">{frame.width} x {frame.height}</span>
               </div>
               {isExpanded && (
                 <div className="layer-children">
@@ -163,11 +163,6 @@ export const LayersPanel: React.FC<LayersPanelProps> = ({
                         >
                           <img src={node.locked ? lockIcon : unlockIcon} alt="" />
                         </Button>
-                        {frame.id === activeFrameId && (
-                          <span className="drag-handle" title="Drag to reorder">
-                            ::
-                          </span>
-                        )}
                       </div>
                     </div>
                   ))}

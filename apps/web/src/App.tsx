@@ -2,10 +2,11 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import Konva from 'konva';
 import polygonClipping from 'polygon-clipping';
-import type { Node } from '@dream-motion/shared';
+import type { DocumentModel, Node } from '@dream-motion/shared';
 import { evaluateTransition } from '@dream-motion/runtime';
 import { dmxSchema } from '@dream-motion/schema';
 import { generateMotionModel } from './lib/autoMotion';
+import { importImageFile } from './lib/importers';
 import {
   buildDmx,
   buildEditorState,
@@ -15,6 +16,7 @@ import {
   migrateDmx
 } from './lib/dmx';
 import { createId } from './lib/ids';
+import { getBaseNameForNode, getNextNameForBase, getNextNameForTool } from './lib/naming';
 import { useDocumentStore } from './store/documentStore';
 import { CanvasStage } from './components/CanvasStage';
 import { LayersPanel } from './components/LayersPanel';
@@ -51,8 +53,15 @@ const downloadBinary = (filename: string, bytes: Uint8Array) => {
   URL.revokeObjectURL(link.href);
 };
 
+const cloneDocumentModel = (doc: DocumentModel) => {
+  if (typeof structuredClone === 'function') {
+    return structuredClone(doc);
+  }
+  return JSON.parse(JSON.stringify(doc));
+};
+
 const App: React.FC = () => {
-  const svgInputRef = useRef<HTMLInputElement | null>(null);
+  const importInputRef = useRef<HTMLInputElement | null>(null);
   const imageInputRef = useRef<HTMLInputElement | null>(null);
   const dmxInputRef = useRef<HTMLInputElement | null>(null);
   const stageRef = useRef<Konva.Stage | null>(null);
@@ -60,10 +69,11 @@ const App: React.FC = () => {
     { kind: 'nodes'; nodes: Node[] } | { kind: 'frame'; frameId: string } | null
   >(null);
   const toastTimerRef = useRef<number | null>(null);
+  const lastCreatedNodeIdRef = useRef<string | null>(null);
 
   const [webglEnabled, setWebglEnabled] = useState(false);
   const [activeTool, setActiveTool] = useState<
-    'select' | 'rect' | 'ellipse' | 'text' | 'pen' | 'image'
+    'select' | 'frame' | 'rect' | 'ellipse' | 'line' | 'text' | 'pen' | 'pencil' | 'image' | 'connector'
   >('select');
   const [exportStatus, setExportStatus] = useState<string | null>(null);
   const [exportError, setExportError] = useState<string | null>(null);
@@ -93,6 +103,9 @@ const App: React.FC = () => {
   const [saveIncludeEditorState, setSaveIncludeEditorState] = useState(true);
   const [lockAspect, setLockAspect] = useState(true);
   const [lockFrameAspect, setLockFrameAspect] = useState(true);
+  const [pendingImagePoint, setPendingImagePoint] = useState<{ x: number; y: number } | null>(null);
+  const [playbackLoop, setPlaybackLoop] = useState(false);
+  const [playbackSpeed, setPlaybackSpeed] = useState(1);
 
   useEffect(() => {
     const stored = window.localStorage.getItem('dm_onboarding_done');
@@ -116,9 +129,9 @@ const App: React.FC = () => {
     selectedNodeIds,
     frameSelected,
     activeVariantId,
-    previewMode,
+    playMode,
     isPlaying,
-    previewTime,
+    playTime,
     warnings,
     lastError,
     history,
@@ -129,6 +142,7 @@ const App: React.FC = () => {
     resetDocument,
     selectNode,
     updateNode,
+    updateNodes,
     moveNode,
     addNodes,
     deleteNode,
@@ -167,15 +181,23 @@ const App: React.FC = () => {
     deleteFrame,
     moveFrame,
     updateTransition,
-    togglePreview,
+    setPlayMode,
+    setPlayStartFrame,
     setPlaying,
-    setPreviewTime,
+    setPlayTime,
+    updateDocumentName,
+    updateDocumentMetadata,
     importSvg,
-    importImage,
     exportRuntime,
     undo,
     redo
   } = useDocumentStore();
+
+  const handleAddNodes = (nodes: Node[]) => {
+    if (!nodes.length) return;
+    addNodes(nodes);
+    lastCreatedNodeIdRef.current = nodes[nodes.length - 1].id;
+  };
 
   const activeFrame =
     document.frames.find((frame) => frame.id === activeFrameId) ?? document.frames[0];
@@ -192,7 +214,13 @@ const App: React.FC = () => {
         nodes: activeVariant.nodes
       }
     : activeFrame;
+  const playStartFrameId = document.startFrameId || document.frames[0]?.id || '';
+  const playFrame =
+    document.frames.find((frame) => frame.id === playStartFrameId) ?? displayFrame;
   const selectedNode = displayFrame.nodes.find((node) => node.id === selectedNodeIds[0]) ?? null;
+  const selectedNodes = selectedNodeIds
+    .map((id) => displayFrame.nodes.find((node) => node.id === id))
+    .filter((node): node is Node => Boolean(node));
   const nodeById = useMemo(() => {
     const map = new Map<string, Node>();
     displayFrame.nodes.forEach((node) => map.set(node.id, node));
@@ -205,30 +233,91 @@ const App: React.FC = () => {
     selectedTransition ??
     document.transitions.find((item) => item.fromFrameId === activeFrame.id) ??
     null;
+  const playTransition =
+    selectedTransition ??
+    document.transitions.find((item) => item.fromFrameId === playStartFrameId) ??
+    null;
+  const isStarred = Boolean(document.metadata?.starred);
+
+  const getNextNodeName = (node: Node) =>
+    getNextNameForBase(document.frames, getBaseNameForNode(node));
+
+  const duplicateNodeWithOffset = (node: Node, offsetX: number) => {
+    const clone: Node = {
+      ...node,
+      id: createId(),
+      name: getNextNodeName(node),
+      x: node.x + offsetX,
+      y: node.y,
+      locked: false
+    };
+    handleAddNodes([clone]);
+    selectNode(clone.id);
+  };
+
+  const alignSelection = (
+    xMode: 'left' | 'center' | 'right' | null,
+    yMode: 'top' | 'middle' | 'bottom' | null
+  ) => {
+    if (!selectedNodes.length) return;
+    const bounds =
+      selectedNodes.length >= 2
+        ? (() => {
+            let minX = selectedNodes[0].x;
+            let minY = selectedNodes[0].y;
+            let maxX = selectedNodes[0].x + selectedNodes[0].width;
+            let maxY = selectedNodes[0].y + selectedNodes[0].height;
+            selectedNodes.forEach((node) => {
+              minX = Math.min(minX, node.x);
+              minY = Math.min(minY, node.y);
+              maxX = Math.max(maxX, node.x + node.width);
+              maxY = Math.max(maxY, node.y + node.height);
+            });
+            return { x: minX, y: minY, width: maxX - minX, height: maxY - minY };
+          })()
+        : activeFrame
+        ? { x: 0, y: 0, width: activeFrame.width, height: activeFrame.height }
+        : null;
+    if (!bounds) {
+      showToast('No alignment container found', 'warning');
+      return;
+    }
+    const updates = selectedNodes.map((node) => {
+      const patch: Partial<Node> = {};
+      if (xMode === 'left') patch.x = bounds.x;
+      if (xMode === 'center') patch.x = bounds.x + (bounds.width - node.width) / 2;
+      if (xMode === 'right') patch.x = bounds.x + bounds.width - node.width;
+      if (yMode === 'top') patch.y = bounds.y;
+      if (yMode === 'middle') patch.y = bounds.y + (bounds.height - node.height) / 2;
+      if (yMode === 'bottom') patch.y = bounds.y + bounds.height - node.height;
+      return { id: node.id, patch };
+    });
+    updateNodes(updates);
+  };
 
   const motion = useMemo(() => generateMotionModel(document), [document]);
-  const motionTransition = motion.transitions.find((item) => item.id === transition?.id);
-  const previewDuration = motionTransition
+  const motionTransition = motion.transitions.find((item) => item.id === playTransition?.id);
+  const playDuration = motionTransition
     ? Math.max(
         motionTransition.duration,
         ...motionTransition.tracks.map((track) => track.delay + track.duration)
       )
     : 0;
 
-  const previewNodes: Node[] =
-    previewMode && transition
+  const playNodes: Node[] =
+    playMode && playTransition
       ? evaluateTransition({
           scene: document,
           motion,
-          transitionId: transition.id,
-          timeMs: previewTime
+          transitionId: playTransition.id,
+          timeMs: playTime
         })
       : displayFrame.nodes;
 
   const hasOnlyOneFrame = document.frames.length <= 1;
   const hasNoObjects = displayFrame.nodes.length === 0;
   const needsSecondFrameHint = hasOnlyOneFrame && !hasNoObjects;
-  const showPreviewRequiresTransition = previewMode && document.transitions.length === 0;
+  const showPlayRequiresTransition = playMode && document.transitions.length === 0;
   const hasSecondFrame = document.frames.length >= 2;
   const framesUnchanged = useMemo(() => {
     if (document.frames.length < 2) return false;
@@ -251,36 +340,51 @@ const App: React.FC = () => {
     }, 0);
   }, [document.frames, document.transitions]);
   const effectiveTimelineDuration = selectedTransition?.duration ?? timelineDuration;
-  const previewTotalMs = transition?.duration ?? 0;
-  const previewProgress = previewTotalMs > 0 ? Math.min(1, previewTime / previewTotalMs) : 0;
+  const playTotalMs = playTransition?.duration ?? 0;
+  const playProgress = playTotalMs > 0 ? Math.min(1, playTime / playTotalMs) : 0;
 
   useEffect(() => {
-    if (!previewMode || !transition) return;
+    if (!playMode || !playTransition) return;
     if (!isPlaying) return;
     let raf = 0;
     let start = 0;
 
     const tick = (timestamp: number) => {
-      if (!start) start = timestamp;
-      const elapsed = timestamp - start;
-      setPreviewTime(elapsed);
-      if (previewDuration > 0 && elapsed >= previewDuration) {
-        setPlaying(false);
-        setPreviewTime(previewDuration);
-        return;
+      if (!start) start = timestamp - playTime / playbackSpeed;
+      const elapsed = (timestamp - start) * playbackSpeed;
+      setPlayTime(elapsed);
+      if (playDuration > 0 && elapsed >= playDuration) {
+        if (playbackLoop) {
+          start = timestamp;
+          setPlayTime(0);
+        } else {
+          setPlaying(false);
+          setPlayTime(playDuration);
+          return;
+        }
       }
       raf = requestAnimationFrame(tick);
     };
 
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
-  }, [previewMode, isPlaying, transition?.id, previewDuration, setPlaying, setPreviewTime]);
+  }, [
+    playMode,
+    isPlaying,
+    playTransition?.id,
+    playDuration,
+    playbackSpeed,
+    playbackLoop,
+    playTime,
+    setPlaying,
+    setPlayTime
+  ]);
 
   useEffect(() => {
-    if (!previewMode) {
-      setPreviewTime(0);
+    if (!playMode) {
+      setPlayTime(0);
     }
-  }, [previewMode, setPreviewTime]);
+  }, [playMode, setPlayTime]);
 
   useEffect(() => {
     if (!selectedTransitionId) return;
@@ -288,27 +392,78 @@ const App: React.FC = () => {
     if (!exists) setSelectedTransitionId(null);
   }, [document.transitions, selectedTransitionId]);
 
+
   const handleImportSvg = async () => {
-    svgInputRef.current?.click();
+    importInputRef.current?.click();
   };
 
   const handleImportImage = async () => {
     imageInputRef.current?.click();
   };
 
-  const handleSvgChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
+  const placeImageNode = async (file: File, point: { x: number; y: number } | null) => {
+    try {
+      const node = await importImageFile(file);
+      const name = getNextNameForTool(document.frames, 'image');
+      const maxSize = 300;
+      const scale = Math.min(1, maxSize / Math.max(node.width, node.height));
+      const width = node.width * scale;
+      const height = node.height * scale;
+      const center = point ?? { x: displayFrame.width / 2, y: displayFrame.height / 2 };
+      handleAddNodes([
+        {
+          ...node,
+          name,
+          x: center.x - width / 2,
+          y: center.y - height / 2,
+          width,
+          height,
+          zIndex: displayFrame.nodes.length
+        }
+      ]);
+      selectNode(node.id);
+    } catch (error) {
+      showToast('Unable to import image', 'error');
+    }
+  };
+
+  const handleImportChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
-    const text = await file.text();
-    importSvg(text);
+    const isSvg =
+      file.type === 'image/svg+xml' || file.name.toLowerCase().endsWith('.svg');
+    if (isSvg) {
+      const text = await file.text();
+      importSvg(text);
+    } else {
+      await placeImageNode(file, null);
+    }
     event.target.value = '';
   };
 
   const handleImageChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
-    await importImage(file);
+    if (pendingImagePoint) {
+      await placeImageNode(file, pendingImagePoint);
+      setPendingImagePoint(null);
+    } else {
+      await placeImageNode(file, null);
+    }
     event.target.value = '';
+  };
+
+  const handleDropFiles = async (files: FileList, point: { x: number; y: number } | null) => {
+    const file = files[0];
+    if (!file) return;
+    const isSvg =
+      file.type === 'image/svg+xml' || file.name.toLowerCase().endsWith('.svg');
+    if (isSvg) {
+      const text = await file.text();
+      importSvg(text);
+      return;
+    }
+    await placeImageNode(file, point);
   };
   const getEditorSnapshot = () =>
     buildEditorState({
@@ -320,8 +475,9 @@ const App: React.FC = () => {
         x: stageRef.current?.x() ?? 0,
         y: stageRef.current?.y() ?? 0
       },
-      previewMode,
-      panelMode
+      playMode,
+      panelMode,
+      playStartFrameId
     });
 
   const normalizeDmxName = (input: string) => {
@@ -356,7 +512,12 @@ const App: React.FC = () => {
     if (!file) return;
     try {
       const buffer = await file.arrayBuffer();
-      const jsonText = decompressDmx(buffer);
+      let jsonText = '';
+      try {
+        jsonText = decompressDmx(buffer);
+      } catch {
+        jsonText = new TextDecoder().decode(new Uint8Array(buffer));
+      }
       const raw = JSON.parse(jsonText);
       if (!raw || raw.format !== 'dmx') {
         showToast('Invalid .dmx file', 'error');
@@ -374,8 +535,9 @@ const App: React.FC = () => {
       const migrated = migrateDmx(parsed.data);
       const doc = hydrateDocumentFromDmx(migrated);
       setDocument(doc);
+      setPlayMode(false);
       setPlaying(false);
-      setPreviewTime(0);
+      setPlayTime(0);
       const editor = migrated.editor;
       if (editor?.selectedFrameId) {
         setActiveFrame(editor.selectedFrameId);
@@ -389,12 +551,20 @@ const App: React.FC = () => {
         setPanelMode(editor.panelMode);
       }
       const nextTool = editor?.activeTool;
-      const toolOptions = ['select', 'rect', 'ellipse', 'text', 'pen', 'image'] as const;
+      const toolOptions = [
+        'select',
+        'frame',
+        'rect',
+        'ellipse',
+        'line',
+        'text',
+        'pen',
+        'pencil',
+        'image',
+        'connector'
+      ] as const;
       if (nextTool && toolOptions.includes(nextTool as (typeof toolOptions)[number])) {
         setActiveTool(nextTool as (typeof toolOptions)[number]);
-      }
-      if (typeof editor?.previewMode === 'boolean' && editor.previewMode !== previewMode) {
-        togglePreview();
       }
       if (editor?.zoom && stageRef.current) {
         window.setTimeout(() => {
@@ -440,6 +610,37 @@ const App: React.FC = () => {
       includeEditorState: saveIncludeEditorState
     });
     setSaveAsOpen(false);
+  };
+
+  const handleRenameFile = () => {
+    const next = window.prompt('Rename file', document.name);
+    if (!next) return;
+    updateDocumentName(next.trim() || document.name);
+  };
+
+  const handleDuplicateFile = () => {
+    const copy = cloneDocumentModel(document);
+    copy.name = `${document.name} Copy`;
+    copy.metadata = {
+      ...copy.metadata,
+      documentId: createId()
+    };
+    setDocument(copy);
+    setCurrentDmxFilename(null);
+    showToast('File duplicated');
+  };
+
+  const handleMoveFile = () => {
+    showToast('Move to is available in V2', 'warning');
+  };
+
+  const handleVersionHistory = () => {
+    showToast('Version history is available in V2', 'warning');
+  };
+
+  const handleToggleStar = () => {
+    const isStarred = Boolean(document.metadata?.starred);
+    updateDocumentMetadata({ starred: !isStarred });
   };
 
   const handleExportRuntime = async () => {
@@ -548,6 +749,31 @@ const App: React.FC = () => {
     downloadText('shape.svg', svg);
     setExportStatus('Exported SVG.');
   };
+
+  const handleExportNodePng = (scale = 1) => {
+    setExportError(null);
+    if (!selectedNode) {
+      setExportError('Select a layer to export.');
+      return;
+    }
+    const stage = stageRef.current;
+    if (!stage) return;
+    const target = stage.findOne(`#${selectedNode.id}`) as Konva.Node | null;
+    if (!target) {
+      setExportError('Selected layer not found on canvas.');
+      return;
+    }
+    const dataUrl = target.toDataURL({ pixelRatio: scale });
+    const link = window.document.createElement('a');
+    link.href = dataUrl;
+    const safeName = selectedNode.name ? selectedNode.name.replace(/\s+/g, '-').toLowerCase() : 'layer';
+    link.download = `${safeName}@${scale}x.png`;
+    link.click();
+  };
+
+  const handleOpenPreferences = () => {
+    showToast('Preferences are available in V2', 'warning');
+  };
   const getBooleanNodes = () => {
     if (selectedNodeIds.length !== 2) return null;
     const nodes = selectedNodeIds
@@ -644,7 +870,7 @@ const App: React.FC = () => {
     deleteNode(b.id);
     const resultNode: Node = {
       id: createId(),
-      name: 'Boolean Result',
+      name: getNextNameForBase(document.frames, 'Boolean Result'),
       type: 'path',
       parentId: null,
       locked: false,
@@ -665,7 +891,7 @@ const App: React.FC = () => {
       bind: null,
       pathData
     };
-    addNodes([resultNode]);
+    handleAddNodes([resultNode]);
     selectNode(resultNode.id);
     setExportStatus('Boolean operation applied.');
   };
@@ -769,16 +995,15 @@ const App: React.FC = () => {
       duplicateFrameAtPosition(source.id, source.x + 250, source.y);
       return;
     }
-    const now = Date.now();
     const clones = clipboardRef.current.nodes.map((node, index) => ({
       ...node,
-      id: `${node.id}-paste-${now}-${index}`,
-      name: `${node.name} Copy`,
-      x: node.x + 30,
-      y: node.y + 30,
+      id: createId(),
+      name: getNextNodeName(node),
+      x: node.x + 40 + index * 4,
+      y: node.y,
       locked: false
     }));
-    addNodes(clones);
+    handleAddNodes(clones);
   };
 
   const handleDuplicateSelected = () => {
@@ -786,16 +1011,9 @@ const App: React.FC = () => {
       duplicateFrame();
       return;
     }
-    if (!selectedNode) return;
-    const clone: Node = {
-      ...selectedNode,
-      id: `${selectedNode.id}-copy-${Date.now()}`,
-      name: `${selectedNode.name} Copy`,
-      x: selectedNode.x + 20,
-      y: selectedNode.y + 20,
-      locked: false
-    };
-    addNodes([clone]);
+    const target = selectedNode ?? displayFrame.nodes.find((node) => node.id === lastCreatedNodeIdRef.current);
+    if (!target) return;
+    duplicateNodeWithOffset(target, 40);
   };
 
   const handleDeleteSelected = () => {
@@ -822,15 +1040,7 @@ const App: React.FC = () => {
       return;
     }
     if (!contextTargetNode) return;
-    const clone: Node = {
-      ...contextTargetNode,
-      id: `${contextTargetNode.id}-copy-${Date.now()}`,
-      name: `${contextTargetNode.name} Copy`,
-      x: contextTargetNode.x + 20,
-      y: contextTargetNode.y + 20,
-      locked: false
-    };
-    addNodes([clone]);
+    duplicateNodeWithOffset(contextTargetNode, 40);
     closeContextMenu();
   };
 
@@ -888,16 +1098,15 @@ const App: React.FC = () => {
       closeContextMenu();
       return;
     }
-    const now = Date.now();
     const clones = clipboardRef.current.nodes.map((node, index) => ({
       ...node,
-      id: `${node.id}-paste-${now}-${index}`,
-      name: `${node.name} Copy`,
-      x: node.x + 30,
-      y: node.y + 30,
+      id: createId(),
+      name: getNextNodeName(node),
+      x: node.x + 40 + index * 4,
+      y: node.y,
       locked: false
     }));
-    addNodes(clones);
+    handleAddNodes(clones);
     closeContextMenu();
   };
 
@@ -958,11 +1167,16 @@ const App: React.FC = () => {
   }, [activeFrame.responsiveRules, activeVariantId, setActiveVariant]);
 
   const handlePlay = () => {
-    if (!previewMode) togglePreview();
+    if (!playMode) setPlayMode(true);
     setPlaying(true);
   };
 
   const handlePause = () => setPlaying(false);
+  const handlePlayFromStart = () => {
+    if (!playMode) setPlayMode(true);
+    setPlayTime(0);
+    setPlaying(true);
+  };
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -1012,7 +1226,7 @@ const App: React.FC = () => {
         }
       }
       if (event.code === 'Space') {
-        if (!previewMode) return;
+        if (!playMode) return;
         event.preventDefault();
         if (isPlaying) {
           handlePause();
@@ -1026,15 +1240,19 @@ const App: React.FC = () => {
         handleDeleteSelected();
         return;
       }
-      if (previewMode) return;
+      if (playMode) return;
       if (event.key.length === 1) {
         const key = event.key.toLowerCase();
         if (key === 'v') setActiveTool('select');
+        if (key === 'f') setActiveTool('frame');
         if (key === 'r') setActiveTool('rect');
         if (key === 'o') setActiveTool('ellipse');
+        if (key === 'l') setActiveTool('line');
         if (key === 't') setActiveTool('text');
-        if (key === 'p') setActiveTool('pen');
+        if (key === 'p' && event.shiftKey) setActiveTool('pencil');
+        if (key === 'p' && !event.shiftKey) setActiveTool('pen');
         if (key === 'i') setActiveTool('image');
+        if (key === 'c') setActiveTool('connector');
       }
     };
     window.addEventListener('keydown', handleKeyDown);
@@ -1047,7 +1265,7 @@ const App: React.FC = () => {
     handlePause,
     handlePlay,
     isPlaying,
-    previewMode,
+    playMode,
     resetDocument
   ]);
 
@@ -1346,19 +1564,10 @@ const App: React.FC = () => {
         onSelect: () => handleBooleanOperation('exclude')
       },
       {
-        id: 'play-preview',
-        label: previewMode ? 'Exit Preview Mode' : 'Preview Mode',
-        group: 'Playback',
-        keywords: ['preview', 'mode', 'render'],
-        shortcut: 'P',
-        enabled: true,
-        onSelect: togglePreview
-      },
-      {
         id: 'play-toggle',
         label: isPlaying ? 'Pause' : 'Play',
         group: 'Playback',
-        keywords: ['play', 'pause', 'preview'],
+        keywords: ['play', 'pause'],
         shortcut: 'Space',
         enabled: true,
         onSelect: () => (isPlaying ? handlePause() : handlePlay())
@@ -1370,8 +1579,8 @@ const App: React.FC = () => {
         keywords: ['restart', 'playback'],
         enabled: true,
         onSelect: () => {
-          if (!previewMode) togglePreview();
-          setPreviewTime(0);
+          if (!playMode) setPlayMode(true);
+          setPlayTime(0);
           setPlaying(true);
         }
       },
@@ -1458,12 +1667,12 @@ const App: React.FC = () => {
     handleReplayOnboarding,
     history,
     isPlaying,
-    previewMode,
+    playMode,
     resetDocument,
     redo,
     selectedNode,
     svgExportEnabled,
-    togglePreview,
+    setPlayMode,
     bringNodeToFront,
     sendNodeToBack,
     setWebglEnabled,
@@ -1472,23 +1681,31 @@ const App: React.FC = () => {
   return (
     <TooltipProvider delayDuration={300}>
       <div
-        className={`app AppRoot ${previewMode ? 'is-preview' : ''} ${panelMode === 'design' ? 'is-design' : ''} ${panelMode === 'animate' ? 'is-animate' : ''}`}
+        className={`app AppRoot ${playMode ? 'is-play' : ''} ${panelMode === 'design' ? 'is-design' : ''} ${panelMode === 'animate' ? 'is-animate' : ''}`}
         data-mode={panelMode}
-        data-preview={previewMode ? 'on' : 'off'}
+        data-play={playMode ? 'on' : 'off'}
       >
         <TopBar
-          previewMode={previewMode}
+          playMode={playMode}
           isPlaying={isPlaying}
+          fileName={document.name}
+          isStarred={isStarred}
+          onRenameFile={handleRenameFile}
+          onDuplicateFile={handleDuplicateFile}
+          onMoveFile={handleMoveFile}
+          onToggleStar={handleToggleStar}
+          onOpenVersionHistory={handleVersionHistory}
+          onSave={handleSave}
+          onSaveAs={handleSaveAs}
+          onOpenFile={handleOpenDmx}
+          onExportDmx={handleSaveAs}
           onPlay={handlePlay}
+          onPlayFromStart={handlePlayFromStart}
           onPause={handlePause}
-          onTogglePreview={togglePreview}
           onImportSvg={handleImportSvg}
-          onImportImage={handleImportImage}
           onExportRuntime={handleExportRuntime}
           onExportPng={handleExportPng}
           onExportSvg={handleExportSvg}
-          onQueueRender={handleQueueRender}
-          onPublish={handlePublish}
           collaborationEnabled={document.collaboration.enabled}
           onToggleShare={toggleCollaboration}
           webglEnabled={webglEnabled}
@@ -1497,9 +1714,28 @@ const App: React.FC = () => {
           onOpenAssets={handleOpenAssets}
           onOpenAdmin={() => setAdminOpen(true)}
           onOpenBilling={() => setBillingOpen(true)}
+          onOpenPreferences={handleOpenPreferences}
+          onOpenShortcuts={() => setShortcutsOpen(true)}
           activeTool={activeTool}
-          onSelectTool={setActiveTool}
+          onSelectTool={(tool) => {
+            setActiveTool(tool);
+            if (tool === 'connector') {
+              setPanelMode('animate');
+            }
+            if (tool === 'image') {
+              setPendingImagePoint({
+                x: displayFrame.width / 2,
+                y: displayFrame.height / 2
+              });
+              imageInputRef.current?.click();
+            }
+          }}
           onNewFile={resetDocument}
+          onRenameFileInline={(name) => updateDocumentName(name)}
+          playbackLoop={playbackLoop}
+          playbackSpeed={playbackSpeed}
+          onToggleLoop={() => setPlaybackLoop((prev) => !prev)}
+          onSetPlaybackSpeed={setPlaybackSpeed}
         />
 
         <LayersPanel
@@ -1528,10 +1764,11 @@ const App: React.FC = () => {
         />
 
         <CanvasStage
-          frame={displayFrame}
+          frame={playMode ? playFrame : displayFrame}
           frames={document.frames}
           activeFrameId={activeFrame.id}
-          nodes={previewNodes}
+          playFrameId={playStartFrameId}
+          nodes={playNodes}
           selectedNodeIds={selectedNodeIds}
           frameSelected={frameSelected}
           symbols={document.symbols}
@@ -1539,7 +1776,17 @@ const App: React.FC = () => {
           onDuplicateFrameAtPosition={duplicateFrameAtPosition}
           onSelectNode={selectNode}
           onUpdateNode={updateNode}
-          onAddNodes={addNodes}
+          onAddNodes={handleAddNodes}
+          onToolComplete={() => {
+            if (activeTool !== 'select' && activeTool !== 'frame' && activeTool !== 'connector') {
+              setActiveTool('select');
+            }
+          }}
+          onDropFiles={handleDropFiles}
+          onRequestImagePlace={(point) => {
+            setPendingImagePoint(point);
+            imageInputRef.current?.click();
+          }}
           onSelectFrame={(id) => {
             setActiveFrame(id);
             selectNode(null);
@@ -1547,19 +1794,20 @@ const App: React.FC = () => {
           }}
           onDeselectFrame={() => setFrameSelected(false)}
           onOpenContextMenu={openContextMenu}
-          previewMode={previewMode}
+          playMode={playMode}
           activeTool={activeTool}
           emptyHint={hasNoObjects}
-          previewHint={showPreviewRequiresTransition}
+          playHint={showPlayRequiresTransition}
           stageRef={stageRef}
           webglEnabled={webglEnabled}
-          webglFrame={displayFrame}
-          webglNodes={previewNodes}
+          webglFrame={playMode ? playFrame : displayFrame}
+          webglNodes={playNodes}
           lockAspect={lockAspect}
         />
 
         <PropertiesPanel
           node={selectedNode}
+          selectedNodes={selectedNodes}
           frame={displayFrame}
           frameSelected={frameSelected}
           onUpdate={updateNode}
@@ -1595,13 +1843,19 @@ const App: React.FC = () => {
           onAddController={addController}
           onUpdateController={updateController}
           animateHint={hasSecondFrame && framesUnchanged}
-          previewMode={previewMode}
+          playMode={playMode}
           panelMode={panelMode}
           onChangePanelMode={setPanelMode}
+          playStartFrameId={playStartFrameId}
+          onSetPlayStartFrame={setPlayStartFrame}
           lockAspect={lockAspect}
           onToggleLockAspect={() => setLockAspect((prev) => !prev)}
           lockFrameAspect={lockFrameAspect}
           onToggleLockFrameAspect={() => setLockFrameAspect((prev) => !prev)}
+          onExportSvg={handleExportSvg}
+          onExportPng={handleExportNodePng}
+          canExportSvg={svgExportEnabled}
+          onAlignSelection={alignSelection}
         />
 
         <FramesBar
@@ -1619,12 +1873,12 @@ const App: React.FC = () => {
           onDelete={deleteFrame}
           onMove={moveFrame}
           onUpdateTransition={updateTransition}
-          previewTime={previewTime}
+          playTime={playTime}
           timelineDuration={effectiveTimelineDuration}
           isPlaying={isPlaying}
           onPlay={handlePlay}
           onPause={handlePause}
-          onSeek={(timeMs) => setPreviewTime(timeMs)}
+          onSeek={(timeMs) => setPlayTime(timeMs)}
           showEmptyHint={needsSecondFrameHint}
           panelMode={panelMode}
           selectedTransitionId={selectedTransition?.id ?? null}
@@ -1642,16 +1896,16 @@ const App: React.FC = () => {
         />
 
         <input
-          ref={svgInputRef}
+          ref={importInputRef}
           type="file"
-          accept="image/svg+xml"
+          accept=".svg,.png,.jpg,.jpeg,.webp"
           style={{ display: 'none' }}
-          onChange={handleSvgChange}
+          onChange={handleImportChange}
         />
         <input
           ref={imageInputRef}
           type="file"
-          accept="image/png,image/jpeg"
+          accept="image/png,image/jpeg,image/webp"
           style={{ display: 'none' }}
           onChange={handleImageChange}
         />
@@ -1828,35 +2082,36 @@ const App: React.FC = () => {
 
         <CommandPalette open={paletteOpen} onOpenChange={setPaletteOpen} menus={commandMenus} />
 
-        {previewMode && (
-          <div className="preview-shell">
-            <div className="preview-toolbar">
+        {playMode && (
+          <div className="play-shell">
+            <div className="play-toolbar">
               <Button onClick={isPlaying ? handlePause : handlePlay}>
                 {isPlaying ? 'Pause' : 'Play'}
               </Button>
               <button
                 type="button"
-                className="preview-close"
+                className="play-close"
                 onClick={() => {
-                  togglePreview();
+                  setPlayMode(false);
                   setPlaying(false);
+                  setPlayTime(0);
                 }}
-                aria-label="Close preview"
+                aria-label="Close play mode"
               >
                 X
               </button>
             </div>
-            <div className="preview-spacer" />
-            <div className="preview-timebar">
-              <div className="preview-timebar-track">
+            <div className="play-spacer" />
+            <div className="play-timebar">
+              <div className="play-timebar-track">
                 <div
-                  className="preview-timebar-fill"
-                  style={{ width: `${previewProgress * 100}%` }}
+                  className="play-timebar-fill"
+                  style={{ width: `${playProgress * 100}%` }}
                 />
               </div>
-              <div className="preview-timebar-labels">
+              <div className="play-timebar-labels">
                 <span>0.00s</span>
-                <span>{(previewTotalMs / 1000).toFixed(2)}s</span>
+                <span>{(playTotalMs / 1000).toFixed(2)}s</span>
               </div>
             </div>
           </div>
@@ -1898,22 +2153,30 @@ const App: React.FC = () => {
         )}
 
         {shortcutsOpen && (
-          <div className="modal">
-            <div className="modal-card">
-              <div className="section-title">Keyboard Shortcuts</div>
-              <div className="notice">Command Palette</div>
-              <div className="responsive-rule">Actions... - Ctrl/Cmd + K</div>
-              <div className="notice">Playback</div>
-              <div className="responsive-rule">Play/Pause - Space (Preview Mode)</div>
-              <div className="notice">Tools</div>
-              <div className="responsive-rule">Select - V</div>
-              <div className="responsive-rule">Rectangle - R</div>
-              <div className="responsive-rule">Ellipse - O</div>
-              <div className="responsive-rule">Text - T</div>
-              <div className="responsive-rule">Pen - P</div>
-              <div className="responsive-rule">Image - I</div>
-              <div className="variant-list">
-                <Button onClick={() => setShortcutsOpen(false)}>Close</Button>
+          <div className="modal" onClick={() => setShortcutsOpen(false)}>
+            <div className="modal-card" onClick={(event) => event.stopPropagation()}>
+              <div className="modal-header">
+                <div className="section-title">Keyboard Shortcuts</div>
+                <Button variant="ghost" onClick={() => setShortcutsOpen(false)}>
+                  Close
+                </Button>
+              </div>
+              <div className="shortcuts-list">
+                <div className="notice">Command Palette</div>
+                <div className="responsive-rule">Actions... - Ctrl/Cmd + K</div>
+                <div className="notice">Playback</div>
+                <div className="responsive-rule">Play/Pause - Space (Play Mode)</div>
+                <div className="notice">Tools</div>
+                <div className="responsive-rule">Select - V</div>
+                <div className="responsive-rule">Frame - F</div>
+                <div className="responsive-rule">Rectangle - R</div>
+                <div className="responsive-rule">Ellipse - O</div>
+                <div className="responsive-rule">Line - L</div>
+                <div className="responsive-rule">Text - T</div>
+                <div className="responsive-rule">Pen - P</div>
+                <div className="responsive-rule">Pencil - Shift + P</div>
+                <div className="responsive-rule">Image - I</div>
+                <div className="responsive-rule">Connector - C</div>
               </div>
             </div>
           </div>

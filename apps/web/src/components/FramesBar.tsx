@@ -18,7 +18,7 @@ type FramesBarProps = {
   onDelete: (id: string) => void;
   onMove: (id: string, direction: 'left' | 'right') => void;
   onUpdateTransition: (id: string, patch: Partial<Transition>) => void;
-  previewTime: number;
+  playTime: number;
   timelineDuration: number;
   isPlaying: boolean;
   onPlay: () => void;
@@ -42,7 +42,7 @@ export const FramesBar: React.FC<FramesBarProps> = ({
   onDelete,
   onMove,
   onUpdateTransition,
-  previewTime,
+  playTime,
   timelineDuration,
   isPlaying,
   onPlay,
@@ -63,10 +63,10 @@ export const FramesBar: React.FC<FramesBarProps> = ({
     current: { x: number; y: number };
   } | null>(null);
   const [hoverFrameId, setHoverFrameId] = useState<string | null>(null);
-  const progress = timelineDuration > 0 ? Math.min(1, previewTime / timelineDuration) : 0;
+  const progress = timelineDuration > 0 ? Math.min(1, playTime / timelineDuration) : 0;
   const playheadX = progress * trackWidth;
   const ticks = 5;
-  const timeLabel = `${(previewTime / 1000).toFixed(2)}s`;
+  const timeLabel = `${(playTime / 1000).toFixed(2)}s`;
   const clamp = (value: number, min: number, max: number) =>
     Math.min(max, Math.max(min, value));
   const getTimeFromClientX = (clientX: number, container: HTMLDivElement) => {

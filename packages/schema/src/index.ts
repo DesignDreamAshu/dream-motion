@@ -16,16 +16,33 @@ const nodeBaseSchema = z.object({
   opacity: z.number().min(0).max(1),
   visible: z.boolean(),
   fill: z.string().nullable(),
+  fillOpacity: z.number().min(0).max(1).nullable().optional(),
   stroke: z.string().nullable(),
   strokeWidth: z.number().nullable(),
+  strokeOpacity: z.number().min(0).max(1).nullable().optional(),
+  strokePosition: z.enum(['center', 'inside', 'outside']).nullable().optional(),
+  lineCap: z.enum(['butt', 'round', 'square']).nullable().optional(),
+  lineJoin: z.enum(['miter', 'round', 'bevel']).nullable().optional(),
   cornerRadius: z.number().nullable(),
+  cornerRadiusTL: z.number().nullable().optional(),
+  cornerRadiusTR: z.number().nullable().optional(),
+  cornerRadiusBR: z.number().nullable().optional(),
+  cornerRadiusBL: z.number().nullable().optional(),
+  shadowColor: z.string().nullable().optional(),
+  shadowOpacity: z.number().min(0).max(1).nullable().optional(),
+  shadowBlur: z.number().min(0).nullable().optional(),
+  shadowOffsetX: z.number().nullable().optional(),
+  shadowOffsetY: z.number().nullable().optional(),
+  blurRadius: z.number().min(0).nullable().optional(),
   zIndex: z.number().int(),
   bind: z.object({
     boneId: z.string().min(1),
     offsetX: z.number(),
     offsetY: z.number(),
     offsetRotation: z.number()
-  }).nullable()
+  }).nullable(),
+  pivotX: z.number().nullable().optional(),
+  pivotY: z.number().nullable().optional()
 });
 
 const rectSchema = nodeBaseSchema.extend({
@@ -43,7 +60,21 @@ const lineSchema = nodeBaseSchema.extend({
 
 const pathSchema = nodeBaseSchema.extend({
   type: z.literal('path'),
-  pathData: z.string().min(1)
+  pathData: z.string().min(1),
+  pathPoints: z
+    .array(
+      z.object({
+        x: z.number(),
+        y: z.number(),
+        out: z
+          .object({
+            x: z.number(),
+            y: z.number()
+          })
+          .optional()
+      })
+    )
+    .optional()
 });
 
 const textSchema = nodeBaseSchema.extend({
@@ -51,7 +82,10 @@ const textSchema = nodeBaseSchema.extend({
   text: z.string(),
   fontSize: z.number(),
   fontFamily: z.string(),
-  fontWeight: z.union([z.number(), z.string()]).nullable()
+  fontWeight: z.union([z.number(), z.string()]).nullable(),
+  textAlign: z.enum(['left', 'center', 'right']).optional(),
+  lineHeight: z.number().nullable().optional(),
+  letterSpacing: z.number().nullable().optional()
 });
 
 const imageSchema = nodeBaseSchema.extend({
@@ -353,7 +387,8 @@ export const dmxEditorSchema = z.object({
   selectedLayerIds: z.array(z.string()),
   zoom: z.number().positive(),
   pan: z.object({ x: z.number(), y: z.number() }),
-  previewMode: z.boolean(),
+  playMode: z.boolean().optional(),
+  playStartFrameId: z.string().nullable().optional(),
   panelMode: z.enum(['design', 'animate'])
 });
 
@@ -383,6 +418,7 @@ export const dmxSchema = z.object({
   assets: z.record(z.string(), dmxAssetSchema),
   frames: z.array(dmxFrameSchema).min(1),
   transitions: z.array(dmxTransitionSchema),
+  playStartFrameId: z.string().min(1).optional(),
   editor: dmxEditorSchema.optional()
 });
 

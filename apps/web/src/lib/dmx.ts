@@ -149,6 +149,7 @@ export const buildDmx = (document: DocumentModel, options: SaveOptions) => {
     assets: Object.fromEntries(Array.from(assets.values()).map((asset) => [asset.id, asset])),
     frames,
     transitions: document.transitions.map(serializeTransition),
+    playStartFrameId: document.startFrameId,
     editor: options.includeEditorState ? options.editorState ?? undefined : undefined
   };
   return dmx;
@@ -242,7 +243,12 @@ export const hydrateDocumentFromDmx = (dmx: DmxDocument): DocumentModel => {
     name: dmx.app?.name ?? 'Untitled',
     frames,
     transitions,
-    startFrameId: dmx.editor?.selectedFrameId ?? frames[0]?.id ?? '',
+    startFrameId:
+      dmx.playStartFrameId ??
+      dmx.editor?.playStartFrameId ??
+      dmx.editor?.selectedFrameId ??
+      frames[0]?.id ??
+      '',
     symbols: [],
     stateMachine: {
       initialStateId: null,
@@ -269,14 +275,16 @@ export const buildEditorState = (input: {
   selectedLayerIds: string[];
   zoom: number;
   pan: { x: number; y: number };
-  previewMode: boolean;
+  playMode: boolean;
   panelMode: 'design' | 'animate';
+  playStartFrameId: string | null;
 }): DmxEditorState => ({
   activeTool: input.activeTool,
   selectedFrameId: input.selectedFrameId,
   selectedLayerIds: input.selectedLayerIds,
   zoom: input.zoom,
   pan: input.pan,
-  previewMode: input.previewMode,
+  playMode: input.playMode,
+  playStartFrameId: input.playStartFrameId,
   panelMode: input.panelMode
 });

@@ -47,21 +47,15 @@ const steps: TourStep[] = [
     targetSelector: '[data-onboarding="animate-tab"]'
   },
   {
-    id: 'preview-mode',
-    title: 'Preview final output',
-    body: 'Preview locks editing and uses the runtime engine.',
-    targetSelector: '[data-onboarding="preview"]'
-  },
-  {
     id: 'play',
     title: 'Play the animation',
-    body: 'Press Space to play/pause in Preview Mode.',
+    body: 'Press Space to play/pause in Play mode.',
     targetSelector: '[data-onboarding="play"]'
   },
   {
     id: 'export',
     title: 'Export runtime',
-    body: 'Export creates code output matching preview.',
+    body: 'Export creates code output matching playback.',
     targetSelector: '[data-onboarding="import-export"]'
   }
 ];

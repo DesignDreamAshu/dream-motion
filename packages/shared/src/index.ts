@@ -40,11 +40,28 @@ export type NodeBase = {
   opacity: number;
   visible: boolean;
   fill: string | null;
+  fillOpacity?: number | null;
   stroke: string | null;
   strokeWidth: number | null;
+  strokeOpacity?: number | null;
+  strokePosition?: 'center' | 'inside' | 'outside' | null;
+  lineCap?: 'butt' | 'round' | 'square' | null;
+  lineJoin?: 'miter' | 'round' | 'bevel' | null;
   cornerRadius: number | null;
+  cornerRadiusTL?: number | null;
+  cornerRadiusTR?: number | null;
+  cornerRadiusBR?: number | null;
+  cornerRadiusBL?: number | null;
+  shadowColor?: string | null;
+  shadowOpacity?: number | null;
+  shadowBlur?: number | null;
+  shadowOffsetX?: number | null;
+  shadowOffsetY?: number | null;
+  blurRadius?: number | null;
   zIndex: number;
   bind: BindInfo | null;
+  pivotX?: number | null;
+  pivotY?: number | null;
 };
 
 export type SymbolOverride = {
@@ -60,6 +77,7 @@ export type LineNode = NodeBase & {
 export type PathNode = NodeBase & {
   type: 'path';
   pathData: string;
+  pathPoints?: PathPoint[];
 };
 
 export type TextNode = NodeBase & {
@@ -68,6 +86,9 @@ export type TextNode = NodeBase & {
   fontSize: number;
   fontFamily: string;
   fontWeight: number | string | null;
+  textAlign?: 'left' | 'center' | 'right';
+  lineHeight?: number | null;
+  letterSpacing?: number | null;
 };
 
 export type ImageNode = NodeBase & {
@@ -114,6 +135,12 @@ export type Bone = {
   y: number;
   length: number;
   rotation: number;
+};
+
+export type PathPoint = {
+  x: number;
+  y: number;
+  out?: { x: number; y: number };
 };
 
 export type BoneWeight = {
@@ -224,7 +251,7 @@ export type DocumentModel = {
   name: string;
   frames: Frame[];
   transitions: Transition[];
-  startFrameId: string;
+  startFrameId: string | null;
   symbols: SymbolDefinition[];
   stateMachine: StateMachine;
   collaboration: CollaborationState;
@@ -233,6 +260,8 @@ export type DocumentModel = {
   enterprise: EnterpriseControls;
   billing: BillingState;
   metadata: Record<string, unknown>;
+  timeline: TimelineModel;
+  lastPickedColor?: string | null;
 };
 
 export type InputType = 'boolean' | 'number' | 'string' | 'trigger';
@@ -300,6 +329,28 @@ export type MotionKeyframe = {
   value: number;
 };
 
+export type TimelineProperty =
+  | MotionTrackProperty
+  | 'fill';
+
+export type TimelineKeyframe = {
+  id: string;
+  t: number;
+  value: number | string;
+  easing?: EasingPreset;
+};
+
+export type TimelineTrack = {
+  id: string;
+  nodeId: string;
+  property: TimelineProperty;
+  keyframes: TimelineKeyframe[];
+};
+
+export type TimelineModel = {
+  tracks: TimelineTrack[];
+};
+
 export type MotionTrack = {
   nodeId: string;
   property: MotionTrackProperty;
@@ -347,7 +398,8 @@ export type DmxEditorState = {
   selectedLayerIds: string[];
   zoom: number;
   pan: { x: number; y: number };
-  previewMode: boolean;
+  playMode?: boolean;
+  playStartFrameId?: string | null;
   panelMode: 'design' | 'animate';
 };
 
@@ -400,6 +452,9 @@ export type DmxDocument = {
   assets: Record<string, DmxAsset>;
   frames: DmxFrame[];
   transitions: DmxTransition[];
+  playStartFrameId?: string | null;
+  timeline?: TimelineModel;
+  lastPickedColor?: string | null;
   editor?: DmxEditorState;
 };
 

@@ -38,7 +38,11 @@ export const DropdownMenu: React.FC<DropdownMenuProps> = ({
     [open]
   );
 
-  return <DropdownContext.Provider value={value}>{children}</DropdownContext.Provider>;
+  return (
+    <DropdownContext.Provider value={value}>
+      <div className="menu-group">{children}</div>
+    </DropdownContext.Provider>
+  );
 };
 
 type DropdownMenuTriggerProps = {

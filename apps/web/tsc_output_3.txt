@@ -1,0 +1,51 @@
+src/App.tsx(48,26): error TS2322: Type 'Uint8Array<ArrayBufferLike>' is not assignable to type 'BlobPart'.
+  Type 'Uint8Array<ArrayBufferLike>' is not assignable to type 'ArrayBufferView<ArrayBuffer>'.
+    Types of property 'buffer' are incompatible.
+      Type 'ArrayBufferLike' is not assignable to type 'ArrayBuffer'.
+        Type 'SharedArrayBuffer' is not assignable to type 'ArrayBuffer'.
+          Types of property '[Symbol.toStringTag]' are incompatible.
+            Type '"SharedArrayBuffer"' is not assignable to type '"ArrayBuffer"'.
+src/App.tsx(535,35): error TS2345: Argument of type '{ frames: { width: number; height: number; background: string; id: string; name: string; isHold: boolean; variants: { id: string; name: string; isBase: boolean; }[]; orderIndex: number; durationMs: number; layersByVariant: Record<...>; responsiveRules?: { ...; }[] | undefined; }[]; ... 8 more ...; editor?: { ...; } ...' is not assignable to parameter of type 'DmxDocument'.
+  Types of property 'frames' are incompatible.
+    Type '{ width: number; height: number; background: string; id: string; name: string; isHold: boolean; variants: { id: string; name: string; isBase: boolean; }[]; orderIndex: number; durationMs: number; layersByVariant: Record<...>; responsiveRules?: { ...; }[] | undefined; }[]' is not assignable to type 'DmxFrame[]'.
+      Type '{ width: number; height: number; background: string; id: string; name: string; isHold: boolean; variants: { id: string; name: string; isBase: boolean; }[]; orderIndex: number; durationMs: number; layersByVariant: Record<...>; responsiveRules?: { ...; }[] | undefined; }' is not assignable to type 'DmxFrame'.
+        Types of property 'layersByVariant' are incompatible.
+          Type 'Record<string, ({ x: number; y: number; width: number; height: number; rotation: number; scaleX: number; scaleY: number; opacity: number; cornerRadius: number | null; fill: string | null; parentId: string | null; ... 25 more ...; pivotY?: number | ... 1 more ... | undefined; } | ... 7 more ... | { ...; })[]>' is not assignable to type 'Record<string, Node[]>'.
+            'string' index signatures are incompatible.
+              Type '({ x: number; y: number; width: number; height: number; rotation: number; scaleX: number; scaleY: number; opacity: number; cornerRadius: number | null; fill: string | null; parentId: string | null; ... 25 more ...; pivotY?: number | ... 1 more ... | undefined; } | ... 7 more ... | { ...; })[]' is not assignable to type 'Node[]'.
+                Type '{ x: number; y: number; width: number; height: number; rotation: number; scaleX: number; scaleY: number; opacity: number; cornerRadius: number | null; fill: string | null; parentId: string | null; ... 25 more ...; pivotY?: number | ... 1 more ... | undefined; } | ... 7 more ... | { ...; }' is not assignable to type 'Node'.
+                  Type '{ x: number; y: number; width: number; height: number; rotation: number; scaleX: number; scaleY: number; opacity: number; cornerRadius: number | null; fill: string | null; parentId: string | null; ... 27 more ...; pivotY?: number | ... 1 more ... | undefined; }' is not assignable to type 'Node'.
+                    Type '{ x: number; y: number; width: number; height: number; rotation: number; scaleX: number; scaleY: number; opacity: number; cornerRadius: number | null; fill: string | null; parentId: string | null; ... 27 more ...; pivotY?: number | ... 1 more ... | undefined; }' is not assignable to type 'SymbolInstanceNode'.
+                      Type '{ x: number; y: number; width: number; height: number; rotation: number; scaleX: number; scaleY: number; opacity: number; cornerRadius: number | null; fill: string | null; parentId: string | null; ... 27 more ...; pivotY?: number | ... 1 more ... | undefined; }' is not assignable to type '{ type: "symbol"; symbolId: string; overrides: SymbolOverride[]; }'.
+                        Types of property 'overrides' are incompatible.
+                          Type '{ nodeId: string; patch: { x?: number | undefined; y?: number | undefined; width?: number | undefined; height?: number | undefined; rotation?: number | undefined; scaleX?: number | undefined; ... 30 more ...; pivotY?: number | ... 1 more ... | undefined; }; }[]' is not assignable to type 'SymbolOverride[]'.
+                            Type '{ nodeId: string; patch: { x?: number | undefined; y?: number | undefined; width?: number | undefined; height?: number | undefined; rotation?: number | undefined; scaleX?: number | undefined; ... 30 more ...; pivotY?: number | ... 1 more ... | undefined; }; }' is not assignable to type 'SymbolOverride'.
+                              The types of 'patch.type' are incompatible between these types.
+                                Type 'string | undefined' is not assignable to type 'NodeType | undefined'.
+                                  Type 'string' is not assignable to type 'NodeType | undefined'.
+src/App.tsx(990,89): error TS2339: Property 'frameId' does not exist on type '{ kind: "nodes"; nodes: Node[]; } | { kind: "frame"; frameId: string; }'.
+  Property 'frameId' does not exist on type '{ kind: "nodes"; nodes: Node[]; }'.
+src/App.tsx(1091,89): error TS2339: Property 'frameId' does not exist on type '{ kind: "nodes"; nodes: Node[]; } | { kind: "frame"; frameId: string; }'.
+  Property 'frameId' does not exist on type '{ kind: "nodes"; nodes: Node[]; }'.
+src/components/CanvasStage.tsx(1414,19): error TS2448: Block-scoped variable 'target' used before its declaration.
+src/components/CanvasStage.tsx(1414,37): error TS2448: Block-scoped variable 'target' used before its declaration.
+src/components/CanvasStage.tsx(1417,9): error TS2448: Block-scoped variable 'target' used before its declaration.
+src/lib/dmx.ts(14,18): error TS7016: Could not find a declaration file for module 'pako'. 'F:/Work/Dream Motion/node_modules/pako/dist/pako.esm.mjs' implicitly has an 'any' type.
+  Try `npm i --save-dev @types/pako` if it exists or add a new declaration (.d.ts) file containing `declare module 'pako';`
+src/lib/dmx.ts(119,3): error TS2322: Type 'EasingPreset' is not assignable to type '"linear" | "easeIn" | "easeOut" | "easeInOut"'.
+  Type '"ease"' is not assignable to type '"linear" | "easeIn" | "easeOut" | "easeInOut"'.
+src/lib/dmx.ts(266,19): error TS2353: Object literal may only specify known properties, and 'seats' does not exist in type 'EnterpriseControls'.
+src/lib/dmx.ts(267,16): error TS2820: Type '"inactive"' is not assignable to type '"active" | "trial" | "past_due"'. Did you mean '"active"'?
+src/lib/importers.ts(141,30): error TS2345: Argument of type 'Float64Array<ArrayBuffer>' is not assignable to parameter of type 'string | number[] | undefined'.
+  Type 'Float64Array<ArrayBuffer>' is missing the following properties from type 'number[]': pop, push, concat, shift, and 5 more.
+src/lib/symbols.ts(15,11): error TS2322: Type '{ id: string; x: number; y: number; width: number; height: number; rotation: number; scaleX: number; scaleY: number; opacity: number; visible: boolean; zIndex: number; name: string; type: NodeType; ... 24 more ...; points: number[]; } | ... 5 more ... | { ...; }' is not assignable to type 'Node'.
+  Type '{ id: string; x: number; y: number; width: number; height: number; rotation: number; scaleX: number; scaleY: number; opacity: number; visible: boolean; zIndex: number; name: string; type: NodeType; ... 24 more ...; points: number[]; }' is not assignable to type 'Node'.
+    Type '{ id: string; x: number; y: number; width: number; height: number; rotation: number; scaleX: number; scaleY: number; opacity: number; visible: boolean; zIndex: number; name: string; type: NodeType; ... 24 more ...; points: number[]; }' is not assignable to type 'LineNode'.
+      Type '{ id: string; x: number; y: number; width: number; height: number; rotation: number; scaleX: number; scaleY: number; opacity: number; visible: boolean; zIndex: number; name: string; type: NodeType; ... 24 more ...; points: number[]; }' is not assignable to type '{ type: "line"; points: number[]; }'.
+        Types of property 'type' are incompatible.
+          Type 'NodeType' is not assignable to type '"line"'.
+            Type '"symbol"' is not assignable to type '"line"'.
+../../packages/runtime/src/index.ts(124,7): error TS7023: 'computeBoneWorld' implicitly has return type 'any' because it does not have a return type annotation and is referenced directly or indirectly in one of its return expressions.
+../../packages/runtime/src/index.ts(133,9): error TS7022: 'parent' implicitly has type 'any' because it does not have a type annotation and is referenced directly or indirectly in its own initializer.
+../../packages/runtime/src/index.ts(136,9): error TS7022: 'x' implicitly has type 'any' because it does not have a type annotation and is referenced directly or indirectly in its own initializer.
+../../packages/runtime/src/index.ts(138,9): error TS7022: 'world' implicitly has type 'any' because it does not have a type annotation and is referenced directly or indirectly in its own initializer.

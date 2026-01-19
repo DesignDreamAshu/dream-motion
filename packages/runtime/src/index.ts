@@ -278,93 +278,196 @@ export type CanvasRenderOptions = {
   background: string | null;
 };
 
-const drawRect = (ctx: CanvasRenderingContext2D, node: Node) => {
-  if (node.cornerRadius && node.cornerRadius > 0) {
-    const r = node.cornerRadius;
-    const w = node.width;
-    const h = node.height;
-    ctx.beginPath();
-    ctx.moveTo(r, 0);
-    ctx.lineTo(w - r, 0);
-    ctx.quadraticCurveTo(w, 0, w, r);
-    ctx.lineTo(w, h - r);
-    ctx.quadraticCurveTo(w, h, w - r, h);
-    ctx.lineTo(r, h);
-    ctx.quadraticCurveTo(0, h, 0, h - r);
-    ctx.lineTo(0, r);
-    ctx.quadraticCurveTo(0, 0, r, 0);
-    ctx.closePath();
-    if (node.fill) {
-      ctx.fillStyle = node.fill;
-      ctx.fill();
-    }
-    if (node.stroke && node.strokeWidth) {
-      ctx.strokeStyle = node.stroke;
-      ctx.lineWidth = node.strokeWidth;
-      ctx.stroke();
-    }
+const clamp = (value: number, min: number, max: number) =>
+  Math.min(max, Math.max(min, value));
+
+const getStrokeBounds = (node: Node) => {
+  const strokeWidth = node.strokeWidth ?? 0;
+  const position = node.strokePosition ?? 'center';
+  const delta =
+    position === 'inside' ? -strokeWidth : position === 'outside' ? strokeWidth : 0;
+  const width = Math.max(1, node.width + delta);
+  const height = Math.max(1, node.height + delta);
+  const x = (node.width - width) / 2;
+  const y = (node.height - height) / 2;
+  return { x, y, width, height };
+};
+
+const getCornerRadii = (node: Node) => {
+  const hasIndependent =
+    node.cornerRadiusTL != null ||
+    node.cornerRadiusTR != null ||
+    node.cornerRadiusBR != null ||
+    node.cornerRadiusBL != null;
+  if (hasIndependent) {
+    return [
+      node.cornerRadiusTL ?? 0,
+      node.cornerRadiusTR ?? 0,
+      node.cornerRadiusBR ?? 0,
+      node.cornerRadiusBL ?? 0
+    ];
+  }
+  const radius = node.cornerRadius ?? 0;
+  return [radius, radius, radius, radius];
+};
+
+const withAlpha = (color: string, alpha: number) => {
+  if (color.startsWith('#')) {
+    const hex = color.replace('#', '');
+    const full =
+      hex.length === 3
+        ? hex
+            .split('')
+            .map((c) => c + c)
+            .join('')
+        : hex.padEnd(6, '0');
+    const r = parseInt(full.slice(0, 2), 16);
+    const g = parseInt(full.slice(2, 4), 16);
+    const b = parseInt(full.slice(4, 6), 16);
+    return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+  }
+  if (color.startsWith('rgb(')) {
+    return color.replace('rgb(', 'rgba(').replace(')', `, ${alpha})`);
+  }
+  return color;
+};
+
+const applyShadow = (ctx: CanvasRenderingContext2D, node: Node, baseOpacity: number) => {
+  const shadowOpacity = node.shadowOpacity ?? 0;
+  if (!node.shadowColor || (shadowOpacity <= 0 && !(node.shadowBlur ?? 0))) {
+    ctx.shadowColor = 'transparent';
+    ctx.shadowBlur = 0;
+    ctx.shadowOffsetX = 0;
+    ctx.shadowOffsetY = 0;
     return;
   }
+  const alpha = clamp(shadowOpacity * baseOpacity, 0, 1);
+  ctx.shadowColor = withAlpha(node.shadowColor, alpha);
+  ctx.shadowBlur = node.shadowBlur ?? 0;
+  ctx.shadowOffsetX = node.shadowOffsetX ?? 0;
+  ctx.shadowOffsetY = node.shadowOffsetY ?? 0;
+};
+
+const fillAndStroke = (
+  ctx: CanvasRenderingContext2D,
+  node: Node,
+  drawPath: () => void
+) => {
   if (node.fill) {
+    ctx.save();
+    const baseOpacity = node.opacity * (node.fillOpacity ?? 1);
+    applyShadow(ctx, node, baseOpacity);
     ctx.fillStyle = node.fill;
-    ctx.fillRect(0, 0, node.width, node.height);
+    ctx.globalAlpha = baseOpacity;
+    drawPath();
+    ctx.fill();
+    ctx.restore();
   }
   if (node.stroke && node.strokeWidth) {
+    ctx.save();
+    const baseOpacity = node.opacity * (node.strokeOpacity ?? 1);
+    applyShadow(ctx, node, baseOpacity);
     ctx.strokeStyle = node.stroke;
     ctx.lineWidth = node.strokeWidth;
-    ctx.strokeRect(0, 0, node.width, node.height);
+    ctx.globalAlpha = baseOpacity;
+    drawPath();
+    ctx.stroke();
+    ctx.restore();
   }
 };
 
-const drawEllipse = (ctx: CanvasRenderingContext2D, node: Node) => {
+const drawRoundedRectPath = (
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+  radii: number[]
+) => {
+  const [tl, tr, br, bl] = radii.map((radius) => Math.max(0, radius));
   ctx.beginPath();
-  ctx.ellipse(
-    node.width / 2,
-    node.height / 2,
-    node.width / 2,
-    node.height / 2,
-    0,
-    0,
-    Math.PI * 2
-  );
-  if (node.fill) {
-    ctx.fillStyle = node.fill;
-    ctx.fill();
+  ctx.moveTo(x + tl, y);
+  ctx.lineTo(x + width - tr, y);
+  ctx.quadraticCurveTo(x + width, y, x + width, y + tr);
+  ctx.lineTo(x + width, y + height - br);
+  ctx.quadraticCurveTo(x + width, y + height, x + width - br, y + height);
+  ctx.lineTo(x + bl, y + height);
+  ctx.quadraticCurveTo(x, y + height, x, y + height - bl);
+  ctx.lineTo(x, y + tl);
+  ctx.quadraticCurveTo(x, y, x + tl, y);
+  ctx.closePath();
+};
+
+const drawRect = (ctx: CanvasRenderingContext2D, node: Node) => {
+  const { x, y, width, height } = getStrokeBounds(node);
+  const radii = getCornerRadii(node);
+  const hasRadius = radii.some((value) => value > 0);
+  if (hasRadius) {
+    fillAndStroke(ctx, node, () => drawRoundedRectPath(ctx, x, y, width, height, radii));
+    return;
   }
-  if (node.stroke && node.strokeWidth) {
-    ctx.strokeStyle = node.stroke;
-    ctx.lineWidth = node.strokeWidth;
-    ctx.stroke();
-  }
+  fillAndStroke(ctx, node, () => {
+    ctx.beginPath();
+    ctx.rect(x, y, width, height);
+    ctx.closePath();
+  });
+};
+
+const drawEllipse = (ctx: CanvasRenderingContext2D, node: Node) => {
+  const { x, y, width, height } = getStrokeBounds(node);
+  fillAndStroke(ctx, node, () => {
+    ctx.beginPath();
+    ctx.ellipse(
+      x + width / 2,
+      y + height / 2,
+      width / 2,
+      height / 2,
+      0,
+      0,
+      Math.PI * 2
+    );
+    ctx.closePath();
+  });
 };
 
 const drawLine = (ctx: CanvasRenderingContext2D, node: Node) => {
   if (!('points' in node)) return;
   const points = node.points;
   if (points.length < 4) return;
-  ctx.beginPath();
-  ctx.moveTo(points[0], points[1]);
-  for (let i = 2; i < points.length; i += 2) {
-    ctx.lineTo(points[i], points[i + 1]);
-  }
-  if (node.stroke && node.strokeWidth) {
-    ctx.strokeStyle = node.stroke;
-    ctx.lineWidth = node.strokeWidth;
-    ctx.stroke();
-  }
+  if ('lineCap' in node && node.lineCap) ctx.lineCap = node.lineCap;
+  if ('lineJoin' in node && node.lineJoin) ctx.lineJoin = node.lineJoin;
+  fillAndStroke(ctx, node, () => {
+    ctx.beginPath();
+    ctx.moveTo(points[0], points[1]);
+    for (let i = 2; i < points.length; i += 2) {
+      ctx.lineTo(points[i], points[i + 1]);
+    }
+  });
 };
 
 const drawPath = (ctx: CanvasRenderingContext2D, node: Node) => {
   if (!('pathData' in node)) return;
   const path = new Path2D(node.pathData);
   if (node.fill) {
+    const baseOpacity = node.opacity * (node.fillOpacity ?? 1);
+    ctx.save();
+    applyShadow(ctx, node, baseOpacity);
     ctx.fillStyle = node.fill;
+    ctx.globalAlpha = baseOpacity;
     ctx.fill(path);
+    ctx.restore();
   }
   if (node.stroke && node.strokeWidth) {
+    const baseOpacity = node.opacity * (node.strokeOpacity ?? 1);
+    ctx.save();
+    applyShadow(ctx, node, baseOpacity);
     ctx.strokeStyle = node.stroke;
     ctx.lineWidth = node.strokeWidth;
+    if ('lineCap' in node && node.lineCap) ctx.lineCap = node.lineCap;
+    if ('lineJoin' in node && node.lineJoin) ctx.lineJoin = node.lineJoin;
+    ctx.globalAlpha = baseOpacity;
     ctx.stroke(path);
+    ctx.restore();
   }
 };
 
@@ -375,14 +478,61 @@ const drawText = (ctx: CanvasRenderingContext2D, node: Node) => {
   const fontWeight = node.fontWeight ? String(node.fontWeight) + ' ' : '';
   ctx.font = `${fontWeight}${fontSize}px ${fontFamily}`;
   ctx.textBaseline = 'top';
+  if ('textAlign' in node && node.textAlign) ctx.textAlign = node.textAlign;
+  const textWidth = node.width || 0;
+  const baseLineHeight = 'lineHeight' in node && node.lineHeight ? node.lineHeight : 1.2;
+  const lineHeight = fontSize * baseLineHeight;
+  const letterSpacing =
+    'letterSpacing' in node && node.letterSpacing ? node.letterSpacing : 0;
+  const drawLineText = (line: string, y: number) => {
+    const originX =
+      ctx.textAlign === 'center' ? textWidth / 2 : ctx.textAlign === 'right' ? textWidth : 0;
+    if (!letterSpacing) {
+      ctx.fillText(line, originX, y, node.width || undefined);
+      return;
+    }
+    let cursorX = originX;
+    for (const char of line) {
+      ctx.fillText(char, cursorX, y);
+      cursorX += ctx.measureText(char).width + letterSpacing;
+    }
+  };
+  const strokeLineText = (line: string, y: number) => {
+    const originX =
+      ctx.textAlign === 'center' ? textWidth / 2 : ctx.textAlign === 'right' ? textWidth : 0;
+    if (!letterSpacing) {
+      ctx.strokeText(line, originX, y, node.width || undefined);
+      return;
+    }
+    let cursorX = originX;
+    for (const char of line) {
+      ctx.strokeText(char, cursorX, y);
+      cursorX += ctx.measureText(char).width + letterSpacing;
+    }
+  };
+  const lines = String(node.text ?? '').split('\n');
   if (node.fill) {
+    const baseOpacity = node.opacity * (node.fillOpacity ?? 1);
+    ctx.save();
+    applyShadow(ctx, node, baseOpacity);
     ctx.fillStyle = node.fill;
-    ctx.fillText(node.text, 0, 0, node.width || undefined);
+    ctx.globalAlpha = baseOpacity;
+    lines.forEach((line, index) => {
+      drawLineText(line, index * lineHeight);
+    });
+    ctx.restore();
   }
   if (node.stroke && node.strokeWidth) {
+    const baseOpacity = node.opacity * (node.strokeOpacity ?? 1);
+    ctx.save();
+    applyShadow(ctx, node, baseOpacity);
     ctx.strokeStyle = node.stroke;
     ctx.lineWidth = node.strokeWidth;
-    ctx.strokeText(node.text, 0, 0, node.width || undefined);
+    ctx.globalAlpha = baseOpacity;
+    lines.forEach((line, index) => {
+      strokeLineText(line, index * lineHeight);
+    });
+    ctx.restore();
   }
 };
 
@@ -406,6 +556,7 @@ const renderNode = (ctx: CanvasRenderingContext2D, node: Node) => {
   if (!node.visible || node.opacity <= 0) return;
   ctx.save();
   ctx.globalAlpha = node.opacity;
+  ctx.filter = node.blurRadius && node.blurRadius > 0 ? `blur(${node.blurRadius}px)` : 'none';
   const centerX = node.x + node.width / 2;
   const centerY = node.y + node.height / 2;
   ctx.translate(centerX, centerY);

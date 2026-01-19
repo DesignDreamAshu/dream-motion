@@ -1,4 +1,4 @@
-import type { Node, NodeBase, ShapeNode, TextNode, LineNode, PathNode, ImageNode } from '@dream-motion/shared';
+import type { Node, NodeBase, ShapeNode, TextNode, LineNode, PathNode, ImageNode, PathPoint } from '@dream-motion/shared';
 import { createId } from './ids';
 
 export type SvgImportResult = {
@@ -70,6 +70,71 @@ const parseTransform = (value: string | null) => {
     }
   }
   return matrix;
+};
+
+const parsePathPoints = (pathData: string): PathPoint[] => {
+  const segments = pathData.match(/[a-zA-Z][^a-zA-Z]*/g) ?? [];
+  const points: PathPoint[] = [];
+  let cx = 0;
+  let cy = 0;
+  let sx = 0;
+  let sy = 0;
+  segments.forEach((segment) => {
+    const command = segment[0];
+    const values = segment
+      .slice(1)
+      .trim()
+      .split(/[\s,]+/)
+      .filter(Boolean)
+      .map((part) => Number.parseFloat(part))
+      .filter((part) => !Number.isNaN(part));
+    const isRelative = command === command.toLowerCase();
+    if (command === 'M' || command === 'm') {
+      for (let i = 0; i < values.length; i += 2) {
+        cx = values[i] + (isRelative ? cx : 0);
+        cy = values[i + 1] + (isRelative ? cy : 0);
+        if (!points.length) {
+          sx = cx;
+          sy = cy;
+        }
+        points.push({ x: cx, y: cy });
+      }
+    } else if (command === 'L' || command === 'l') {
+      for (let i = 0; i < values.length; i += 2) {
+        cx = values[i] + (isRelative ? cx : 0);
+        cy = values[i + 1] + (isRelative ? cy : 0);
+        points.push({ x: cx, y: cy });
+      }
+    } else if (command === 'C' || command === 'c') {
+      for (let i = 0; i < values.length; i += 6) {
+        const c1x = values[i] + (isRelative ? cx : 0);
+        const c1y = values[i + 1] + (isRelative ? cy : 0);
+        const x = values[i + 4] + (isRelative ? cx : 0);
+        const y = values[i + 5] + (isRelative ? cy : 0);
+        if (points.length) {
+          const prev = points[points.length - 1];
+          prev.out = { x: c1x - prev.x, y: c1y - prev.y };
+        }
+        cx = x;
+        cy = y;
+        points.push({ x: cx, y: cy });
+      }
+    } else if (command === 'H' || command === 'h') {
+      values.forEach((value) => {
+        cx = value + (isRelative ? cx : 0);
+        points.push({ x: cx, y: cy });
+      });
+    } else if (command === 'V' || command === 'v') {
+      values.forEach((value) => {
+        cy = value + (isRelative ? cy : 0);
+        points.push({ x: cx, y: cy });
+      });
+    } else if (command === 'Z' || command === 'z') {
+      cx = sx;
+      cy = sy;
+    }
+  });
+  return points;
 };
 
 const combineMatrix = (parent: DOMMatrix, local: DOMMatrix) => {
@@ -295,6 +360,7 @@ export const importSvgText = (svgText: string): SvgImportResult => {
     if (tag === 'path') {
       const pathData = element.getAttribute('d') ?? '';
       if (!pathData) return;
+      const pathPoints = parsePathPoints(pathData);
       const base = buildBase(
         {
           id,
@@ -314,7 +380,7 @@ export const importSvgText = (svgText: string): SvgImportResult => {
         },
         zIndex++
       );
-      nodes.push({ ...(base as PathNode), pathData });
+      nodes.push({ ...(base as PathNode), pathData, pathPoints });
       return;
     }
 

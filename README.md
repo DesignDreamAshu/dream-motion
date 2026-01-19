@@ -27,6 +27,14 @@ Open the dev server URL printed by Vite.
 - Adjust Duration / Animation / Easing in the Properties panel.
 - Toggle Preview mode and Play to verify motion.
 
+## Tools (Text / Pencil / Pen / Image)
+
+- Text tool (T): click to insert text, type, press Enter to commit.
+- Pencil tool (B): drag to draw a freehand stroke; release to finish.
+- Pen tool (P): click to add points, drag to curve, press Enter to finish.
+- Image tool (I): click the image tool to pick a file; image drops at the center.
+  - Click in the canvas to place at a specific position.
+
 ## DMX Save/Open
 
 Use the Actions palette (Ctrl/Cmd + K):
@@ -42,6 +50,12 @@ Demo steps:
 2) Actions -> Save As... and download `project.dmx`.
 3) Refresh browser.
 4) Actions -> Open... and select `project.dmx`.
+
+## Header Grouping
+
+- Left: app menu, file name menu, New file
+- Center: tool toolbar (shape + pen groups, responsive Tools menu)
+- Right: Edit/Preview switch, play controls, Share, Resources menu, Workspace menu
 
 ## Runtime Export
 
